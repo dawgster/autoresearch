@@ -38,13 +38,13 @@ from prepare import (
 # Config
 # ---------------------------------------------------------------------------
 
-MODEL_NAME = "google/flan-t5-large"
+MODEL_NAME = "google/flan-t5-base"
 MAX_LENGTH = 512
-BATCH_SIZE = 2
+BATCH_SIZE = 8
 LEARNING_RATE = 3e-5
 WEIGHT_DECAY = 0.01
 WARMUP_RATIO = 0.1
-GRADIENT_ACCUMULATION = 8  # effective batch = 16
+GRADIENT_ACCUMULATION = 2  # effective batch = 16
 THRESHOLD = 0.5  # classification threshold
 SEED = 42
 
