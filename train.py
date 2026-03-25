@@ -36,7 +36,7 @@ from prepare import (
 # Config
 # ---------------------------------------------------------------------------
 
-MODEL_NAME = "EleutherAI/pile-t5-large"
+MODEL_NAME = "google/flan-t5-large"
 MAX_LENGTH = 512
 BATCH_SIZE = 32   # large batch OK since we only train a small head
 LEARNING_RATE = 1e-3
