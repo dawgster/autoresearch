@@ -38,13 +38,13 @@ from prepare import (
 # Config
 # ---------------------------------------------------------------------------
 
-MODEL_NAME = "microsoft/deberta-v3-base"
+MODEL_NAME = "google/flan-t5-large"
 MAX_LENGTH = 512
-BATCH_SIZE = 4
-LEARNING_RATE = 2e-5
+BATCH_SIZE = 2
+LEARNING_RATE = 3e-5
 WEIGHT_DECAY = 0.01
 WARMUP_RATIO = 0.1
-GRADIENT_ACCUMULATION = 4  # effective batch = 16
+GRADIENT_ACCUMULATION = 8  # effective batch = 16
 THRESHOLD = 0.5  # classification threshold
 SEED = 42
 
