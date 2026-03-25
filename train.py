@@ -38,7 +38,7 @@ from prepare import (
 # Config
 # ---------------------------------------------------------------------------
 
-MODEL_NAME = "microsoft/deberta-v3-large"
+MODEL_NAME = "microsoft/deberta-v3-base"
 MAX_LENGTH = 512
 BATCH_SIZE = 4
 LEARNING_RATE = 2e-5
