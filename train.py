@@ -36,7 +36,7 @@ from prepare import (
 # Config
 # ---------------------------------------------------------------------------
 
-MODEL_NAME = "google/flan-t5-large"
+MODEL_NAME = "EleutherAI/pile-t5-large"
 MAX_LENGTH = 512
 BATCH_SIZE = 32   # large batch OK since we only train a small head
 LEARNING_RATE = 1e-3
@@ -148,6 +148,8 @@ def train():
     # Load tokenizer and frozen encoder
     print(f"Loading {MODEL_NAME} (frozen encoder)...")
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
     full_model = AutoModel.from_pretrained(MODEL_NAME)
     # For T5-style models, extract just the encoder to save VRAM
     if hasattr(full_model, "encoder"):
