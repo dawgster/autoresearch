@@ -40,11 +40,11 @@ from prepare import (
 
 MODEL_NAME = "microsoft/deberta-v3-large"
 MAX_LENGTH = 512
-BATCH_SIZE = 8
+BATCH_SIZE = 4
 LEARNING_RATE = 2e-5
 WEIGHT_DECAY = 0.01
 WARMUP_RATIO = 0.1
-GRADIENT_ACCUMULATION = 2
+GRADIENT_ACCUMULATION = 4  # effective batch = 16
 THRESHOLD = 0.5  # classification threshold
 SEED = 42
 
@@ -98,7 +98,9 @@ def train():
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
     model = AutoModelForSequenceClassification.from_pretrained(
         MODEL_NAME, num_labels=2
-    ).to(device)
+    )
+    model.gradient_checkpointing_enable()
+    model = model.to(device)
 
     # Datasets
     train_dataset = TextDataset(train_data, tokenizer, MAX_LENGTH)
