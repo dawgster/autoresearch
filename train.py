@@ -10,10 +10,14 @@ Metric: combined_score = (F1 + FP_score + AP) / 3  (higher is better)
 """
 
 import os
+import sys
 import time
 import json
 import random
 from pathlib import Path
+
+# Unbuffered output so we can monitor progress
+sys.stdout.reconfigure(line_buffering=True)
 
 import torch
 import torch.nn as nn
@@ -36,7 +40,7 @@ from prepare import (
 # Config
 # ---------------------------------------------------------------------------
 
-MODEL_NAME = "google/flan-t5-large"
+MODEL_NAME = "EleutherAI/pile-t5-large"
 MAX_LENGTH = 512
 BATCH_SIZE = 32   # large batch OK since we only train a small head
 LEARNING_RATE = 1e-3
@@ -45,7 +49,7 @@ WARMUP_RATIO = 0.1
 GRADIENT_ACCUMULATION = 1
 THRESHOLD = 0.5
 SEED = 42
-EXTRACT_BATCH_SIZE = 16  # batch size for feature extraction (forward-only)
+EXTRACT_BATCH_SIZE = 8  # batch size for feature extraction (forward-only)
 
 # ---------------------------------------------------------------------------
 # Dataset
@@ -86,7 +90,7 @@ def extract_features(model, dataloader, device):
     all_labels = []
 
     with torch.no_grad():
-        for batch in dataloader:
+        for i, batch in enumerate(dataloader):
             input_ids = batch["input_ids"].to(device)
             attention_mask = batch["attention_mask"].to(device)
             labels = batch["label"]
@@ -96,15 +100,19 @@ def extract_features(model, dataloader, device):
                     input_ids=input_ids,
                     attention_mask=attention_mask,
                 )
-                # Get hidden states (works for both encoder-only and full models)
                 hidden = outputs.last_hidden_state if hasattr(outputs, "last_hidden_state") else outputs[0]
-
-                # Mean pool over non-padding tokens
                 mask_expanded = attention_mask.unsqueeze(-1).float()
                 pooled = (hidden.float() * mask_expanded).sum(dim=1) / mask_expanded.sum(dim=1).clamp(min=1)
 
             all_features.append(pooled.cpu())
             all_labels.append(labels)
+
+            # Prevent VRAM buildup
+            del outputs, hidden, pooled, input_ids, attention_mask
+            if i % 100 == 0:
+                torch.cuda.empty_cache()
+                if i > 0:
+                    print(f"    {i * dataloader.batch_size}/{len(dataloader.dataset)} extracted")
 
     return torch.cat(all_features, dim=0), torch.cat(all_labels, dim=0)
 
