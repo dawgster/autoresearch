@@ -112,6 +112,12 @@ def train():
     warmup_steps = int(total_steps * WARMUP_RATIO)
     scheduler = get_linear_schedule_with_warmup(optimizer, warmup_steps, total_steps)
 
+    # Use bf16 mixed precision to avoid DeBERTa NaN issues and save VRAM
+    use_amp = device.type == "cuda" and torch.cuda.is_bf16_supported()
+    amp_dtype = torch.bfloat16 if use_amp else torch.float32
+    scaler = torch.amp.GradScaler("cuda", enabled=(use_amp and amp_dtype == torch.float16))
+    print(f"AMP: {use_amp}, dtype: {amp_dtype}")
+
     # Training loop with fixed time budget
     print(f"Training for {TIME_BUDGET}s...")
     start_time = time.time()
@@ -131,8 +137,9 @@ def train():
             attention_mask = batch["attention_mask"].to(device)
             labels = batch["label"].to(device)
 
-            outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
-            loss = outputs.loss / GRADIENT_ACCUMULATION
+            with torch.amp.autocast("cuda", dtype=amp_dtype, enabled=use_amp):
+                outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
+                loss = outputs.loss / GRADIENT_ACCUMULATION
             loss.backward()
 
             step += 1
@@ -150,7 +157,7 @@ def train():
             break
 
         # Quick eval at end of each epoch
-        score = _evaluate(model, val_loader, device)
+        score = _evaluate(model, val_loader, device, amp_dtype, use_amp)
         if score["combined_score"] > best_score:
             best_score = score["combined_score"]
             best_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
@@ -166,7 +173,7 @@ def train():
 
     # Final evaluation
     training_seconds = time.time() - start_time
-    final_score = _evaluate(model, val_loader, device)
+    final_score = _evaluate(model, val_loader, device, amp_dtype, use_amp)
     peak_vram = torch.cuda.max_memory_allocated() / 1024 / 1024
 
     # Save model
@@ -188,7 +195,7 @@ def train():
     print(f"steps:            {step}")
 
 
-def _evaluate(model, val_loader, device) -> dict:
+def _evaluate(model, val_loader, device, amp_dtype=torch.float32, use_amp=False) -> dict:
     """Run evaluation on validation set."""
     model.eval()
     all_labels = []
@@ -201,8 +208,11 @@ def _evaluate(model, val_loader, device) -> dict:
             attention_mask = batch["attention_mask"].to(device)
             labels = batch["label"]
 
-            outputs = model(input_ids=input_ids, attention_mask=attention_mask)
-            probs = torch.softmax(outputs.logits, dim=-1)[:, 1].cpu().numpy()
+            with torch.amp.autocast("cuda", dtype=amp_dtype, enabled=use_amp):
+                outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+            # Cast logits to fp32 for stable softmax
+            logits = outputs.logits.float()
+            probs = torch.softmax(logits, dim=-1)[:, 1].cpu().numpy()
             preds = (probs >= THRESHOLD).astype(int)
 
             all_labels.extend(labels.numpy().tolist())
