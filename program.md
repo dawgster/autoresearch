@@ -1,158 +1,169 @@
-# autoresearch — SN32 AI Text Detection
+# autoresearch — SN120 Affine (Reinforcement Learning)
 
-This is an experiment to have an LLM autonomously improve an AI text detection model
-for Bittensor Subnet 32 (ItsAI).
+This is an experiment to have an LLM autonomously improve a reasoning model
+for Bittensor Subnet 120 (Affine). The potential reward is ~$5,000/GPU/day
+for a competitive model.
 
 ## Context
 
-We are mining on Bittensor SN32, which rewards miners for accurately classifying text
-as human-written or AI-generated. Our miner currently runs a baseline DeBERTa-v3-large
-model and earns ~$10/day (rank 121/237). Top miners earn $85-105/day. The scoring is:
+Affine is an incentivized RL competition on Bittensor. Miners submit models that
+are evaluated on multi-turn agent tasks. The mechanism is winners-take-all on the
+Pareto frontier — your model must outperform all others across ALL environments
+to earn maximum rewards.
 
-- **F1 Score** — binary classification (human vs AI)
-- **False Positive Score** — `1 - FP/total` (penalizes calling human text "AI")
-- **Average Precision** — quality of probability ranking across all samples
-- **Final reward** = average of all three
+**How it works:**
+1. Pull an existing frontier model from the network
+2. Improve it with RL training (RLHF, DPO, GRPO, etc.)
+3. Upload to HuggingFace
+4. Deploy as a Chutes inference endpoint
+5. Commit on-chain
+6. Validators evaluate your model on tasks → emissions if you're on the Pareto frontier
 
-Validators send a mix of:
-- Human text from The Pile dataset (with augmentations: random sentence selection,
-  misspellings, adjective removal)
-- AI-generated text from 30+ top LLMs (Ollama) with random generation parameters
-- Text length varies, augmentations prevent hash-based cheating
+**Current environments (from AgentGym suite):**
+- `webshop` — web shopping agent tasks
+- `alfworld` — embodied household tasks
+- `babyai` — grid-world navigation/instruction following
+- `sciworld` — science experiment simulation
+- More are added over time
 
-Our goal: climb from rank 121 to top 20 by improving model accuracy.
+**Scoring:** Models are evaluated on task completion across all environments.
+A model must dominate the Pareto frontier — meaning it's better than all existing
+models on at least one environment while not worse on others. Statistical significance
+via Beta distribution confidence intervals prevents copy-mining.
+
+**Revenue:** 6 outsiders earn $1K-$35K/day. Median: $4,390/day per GPU.
 
 ## Setup
 
 To set up a new experiment, work with the user to:
 
-1. **Agree on a run tag**: propose a tag based on today's date (e.g. `mar23`). The branch `autoresearch/<tag>` must not already exist — this is a fresh run.
+1. **Agree on a run tag**: propose a tag based on today's date (e.g. `mar26`).
 2. **Create the branch**: `git checkout -b autoresearch/<tag>` from current master.
-3. **Read the in-scope files**: The repo is small. Read these files for full context:
+3. **Read the in-scope files**:
    - `README.md` — repository context.
-   - `prepare.py` — fixed data prep, evaluation harness, dataset loading. Do not modify.
-   - `train.py` — the file you modify. Model architecture, training loop, data augmentation.
-4. **Verify data exists**: Check that `data/` contains the training datasets. If not, tell the human to run `uv run prepare.py`.
-5. **Initialize results.tsv**: Create `results.tsv` with just the header row. The baseline will be recorded after the first run.
-6. **Confirm and go**: Confirm setup looks good.
-
-Once you get confirmation, kick off the experimentation.
+   - `prepare.py` — environment setup, evaluation harness, model pulling. Do not modify.
+   - `train.py` — the file you modify. RL training pipeline.
+4. **Pull a frontier model**: Use the Affine CLI to pull the current best model as starting point.
+5. **Initialize results.tsv**: Create with header row.
+6. **Confirm and go**.
 
 ## Experimentation
 
-Each experiment runs on a single GPU (RTX 3090, 24GB VRAM). The training script runs
-for a **fixed time budget of 10 minutes** (wall clock). You launch it as: `uv run train.py`.
+Each experiment modifies the RL training approach in `train.py`. The workflow differs
+from traditional autoresearch because we're doing RL, not supervised learning:
 
 **What you CAN do:**
-- Modify `train.py` — this is the only file you edit. Everything is fair game:
-  - Model architecture (DeBERTa variants, ensembles, custom heads)
-  - Training hyperparameters (LR, scheduler, batch size, epochs)
-  - Data augmentation strategies
-  - Loss functions (focal loss, label smoothing, etc.)
-  - Preprocessing (tokenization length, text cleaning)
-  - Ensemble/averaging strategies
-  - Any technique to improve F1, reduce false positives, or improve AP
+- Modify `train.py` — everything is fair game:
+  - RL algorithm (PPO, DPO, GRPO, REINFORCE, etc.)
+  - Reward shaping and reward models
+  - Training data generation (rollout collection)
+  - Base model selection (Qwen, Llama, Mistral, DeepSeek, etc.)
+  - Hyperparameters (LR, KL penalty, batch size, epochs)
+  - Multi-task training strategies
+  - Curriculum learning across environments
+  - Prompt engineering for agent behavior
+  - Tool-use and chain-of-thought optimization
+  - Model merging / DARE / TIES techniques
+  - LoRA / QLoRA for efficient fine-tuning on limited VRAM
 
 **What you CANNOT do:**
-- Modify `prepare.py`. It is read-only. It contains the fixed evaluation and data loading.
-- Install new packages beyond what's in `pyproject.toml`.
-- Modify the evaluation harness.
+- Modify `prepare.py`
+- Install new packages beyond pyproject.toml
+- Modify the evaluation harness
 
-**The goal: maximize the combined score (F1 + FP_score + AP) / 3.** Since this is
-what SN32 validators use, this directly translates to higher on-chain incentive.
+**The goal: maximize task completion rate across ALL environments simultaneously.**
+A model that's great at webshop but terrible at alfworld won't earn — it needs to be
+on the Pareto frontier across all environments.
 
-**VRAM**: You have 24GB on an RTX 3090. Stay within this limit.
+**VRAM**: You have 24GB on an RTX 3090. Use QLoRA/LoRA for 7B+ models.
+Consider smaller models (1.5B-3B) that fit fully for faster iteration.
 
-**Simplicity criterion**: Same as original — simpler is better, all else equal.
+**Time budget**: Each training run should target ~30 minutes. RL needs more
+iterations than supervised learning. Collect rollouts, train, evaluate, repeat.
 
-**The first run**: Always establish the baseline first by running train.py as-is.
+**The first run**: Pull the current frontier model, evaluate it on available
+environments to establish baseline scores.
 
-## Research directions to explore
+## Research directions
 
-These are starting points — use your judgment:
-
-1. **Better base models**: Try DeBERTa-v3-base (smaller, might generalize better),
-   or microsoft/deberta-v2-xlarge if VRAM allows with gradient checkpointing.
-2. **Training data augmentation**: The validator uses misspellings and adjective removal.
-   Train with similar augmentations to be robust to them.
-3. **Multi-model detection**: AI text from 30+ LLMs. A model that's seen diverse LLM
-   outputs during training will generalize better.
-4. **Calibration**: AP score rewards well-calibrated probabilities, not just accuracy.
-   Temperature scaling, Platt scaling, or mixup training can help.
-5. **False positive optimization**: The FP score is 1/3 of the reward. A model that
-   rarely calls human text "AI" has an edge. Asymmetric loss or threshold tuning.
-6. **Longer context**: More context = more signal. Experiment with max_length.
-7. **Ensemble**: Average predictions from multiple checkpoints or model sizes.
-8. **Contrastive learning**: Pre-train on human vs AI text pairs before fine-tuning.
-9. **Feature engineering**: Perplexity features, burstiness, sentence-level variance.
+1. **Start with a strong base**: Qwen2.5-3B-Instruct or similar — small enough
+   for full fine-tuning on 24GB, strong enough for agent tasks.
+2. **GRPO/DPO on rollout data**: Collect rollouts from the environments, rank by
+   reward, train with preference optimization.
+3. **ReAct/tool-use prompting**: Agent tasks benefit from structured reasoning.
+   Fine-tune the model to use ReAct-style thought-action-observation loops.
+4. **Environment-specific strategies**: Each AgentGym environment has different
+   optimal strategies. Train on diverse rollouts across all environments.
+5. **Model merging**: Train separate LoRA adapters per environment, then merge
+   with DARE/TIES to get a single model good at everything.
+6. **Distillation from larger models**: Use GPT-4/Claude to generate expert
+   trajectories, then distill into your smaller model.
+7. **Self-play / iterative refinement**: Generate rollouts with current model,
+   filter for successes, train on those, repeat.
+8. **Reward hacking prevention**: The eval uses confidence intervals, so your
+   model needs genuinely better task completion, not statistical flukes.
 
 ## Output format
 
-The training script prints a summary like this:
-
 ```
 ---
-combined_score:   0.8500
-f1_score:         0.8700
-fp_score:         0.9200
-ap_score:         0.7600
-val_loss:         0.3200
-training_seconds: 600.0
-peak_vram_mb:     18000
-num_samples:      50000
+env_webshop:      0.7500
+env_alfworld:     0.6800
+env_babyai:       0.9200
+env_sciworld:     0.5400
+avg_score:        0.7225
+training_minutes: 30.0
+peak_vram_mb:     22000
+base_model:       Qwen/Qwen2.5-3B-Instruct
+method:           GRPO on self-play rollouts
 ```
 
-Extract the key metric:
-```
-grep "^combined_score:" run.log
-```
+Extract: `grep "^avg_score:\|^env_" run.log`
 
 ## Logging results
 
-When an experiment is done, log it to `results.tsv` (tab-separated).
+TSV with header:
 
 ```
-commit	combined_score	f1	fp_score	ap	memory_gb	status	description
+commit	avg_score	webshop	alfworld	babyai	sciworld	memory_gb	status	description
 ```
-
-1. git commit hash (short, 7 chars)
-2. combined_score (average of f1, fp_score, ap) — use 0.000 for crashes
-3. f1 score
-4. fp_score
-5. ap score
-6. peak memory in GB
-7. status: `keep`, `discard`, or `crash`
-8. short text description
 
 ## The experiment loop
 
-The experiment runs on a dedicated branch (e.g. `autoresearch/mar23`).
-
 LOOP FOREVER:
 
-1. Look at the git state: the current branch/commit we're on
-2. Tune `train.py` with an experimental idea by directly hacking the code.
+1. Check current branch/commit state
+2. Modify `train.py` with an RL improvement idea
 3. git commit
-4. Run the experiment: `uv run train.py > run.log 2>&1`
-5. Read out the results: `grep "^combined_score:\|^f1_score:\|^fp_score:\|^ap_score:\|^peak_vram_mb:" run.log`
-6. If the grep output is empty, the run crashed. Run `tail -n 50 run.log` for the traceback.
-7. Record the results in results.tsv (do NOT commit results.tsv)
-8. If combined_score improved (higher is better), keep the git commit
-9. If combined_score is equal or worse, git reset back to where you started
+4. Run: `uv run train.py > run.log 2>&1`
+5. Read results: `grep "^avg_score:\|^env_" run.log`
+6. If crashed, check `tail -n 50 run.log`, attempt fix
+7. Log to results.tsv
+8. If avg_score improved AND no environment regressed significantly, keep
+9. Otherwise git reset and try another approach
 
-**Timeout**: Each experiment should take ~10 minutes. Kill if >15 minutes.
-
-**NEVER STOP**: Once the loop begins, do NOT pause to ask the human anything. You are
-autonomous. If you run out of ideas, think harder — read the SN32 validator code for
-clues, try combining previous near-misses, try more radical approaches. Run until
-manually interrupted.
+**NEVER STOP.** Run until manually interrupted.
 
 ## Key reference files
 
-The SN32 miner code is at: `/home/kuba/Repositories/bittensor/miners/sn32-itsai/`
-- `neurons/miner.py` — the miner (shows how forward() processes requests)
-- `neurons/miners/deberta_classifier.py` — the current baseline model
-- `detection/protocol.py` — the TextSynapse protocol
-- `detection/validator/` — how validators score miners (if you need to understand scoring)
+The Affine miner code is at: `/home/kuba/Repositories/bittensor/miners/sn120-affine/`
+- `docs/MINER.md` — complete miner workflow
+- `docs/FAQ.md` — common issues and solutions
+- `affine/cli.py` — CLI commands (pull, push, commit)
+- `examples/sdk.py` — how to evaluate models on environments
+- `examples/sdk2.py` — evaluate custom models
 
-Read these for context on exactly what the validator sends and how responses are scored.
+The Affine SDK can be used to:
+- Pull frontier models: `af pull <UID> --model-path ./model`
+- Evaluate models: see `examples/sdk.py`
+- List environments: see SDK docs
+
+## Deployment workflow (after training)
+
+Once you have a model that improves on the frontier:
+
+1. Upload to HuggingFace: `huggingface-cli upload <user>/affine-model ./model`
+2. Deploy to Chutes: `af chutes_push --repo <user>/affine-model --revision <SHA>`
+3. Commit on-chain: `af commit --repo <user>/affine-model --revision <SHA> --chute-id <id>`
+
+The human will handle deployment. Your job is to produce the best model.
